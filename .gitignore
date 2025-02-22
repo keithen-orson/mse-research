@@ -1,0 +1,20 @@
+# Ignore OS-specific files
+.DS_Store         # macOS Finder file
+Thumbs.db          # Windows thumbnail cache
+desktop.ini       # Windows desktop configuration
+
+# Ignore image files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.tif
+*.webp
+
+# Ignore CSV files
+*.csv
+
+#Ignore zip files
+*.zip
