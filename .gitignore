@@ -1,5 +1,5 @@
 # Ignore OS-specific files
-.DS_Store         # macOS Finder file
+.DS_Store
 Thumbs.db          # Windows thumbnail cache
 desktop.ini       # Windows desktop configuration
 

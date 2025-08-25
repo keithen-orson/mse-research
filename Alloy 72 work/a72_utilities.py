@@ -5,6 +5,7 @@ from skimage.io import imread
 from tifffile import imsave
 from pathlib import Path
 from skimage import io
+import os
 from os.path import split, join
 import matplotlib as mpl
 from numpy.typing import ArrayLike
@@ -64,7 +65,7 @@ def load_phase_masks():
     ni_depleted = imread("/Users/apple/Sync/Research/Alloy 72/Segmentation/Registered masks/ni depleted phase.tif")
     l21 = imread("/Users/apple/Sync/Research/Alloy 72/Segmentation/Registered masks/registered l21 mask.tif")
     inverse_fcc = al_phase+islands+ni_depleted+l21
-    fcc = inverse_fcc[inverse_fcc == 0]
+    fcc = np.where(inverse_fcc == 0, 1, 0)
 
     phase_masks = {"Al phase": al_phase, "Islands": islands, "Ni depleted": ni_depleted, "L21": l21, "FCC": fcc}
 
@@ -299,7 +300,7 @@ def mask_subtract_arr(image: ArrayLike, mask: ArrayLike, return_nan=False):
     normed_mask = (mask - np.min(mask)) / (np.max(mask) - np.min(mask))
     
     # Create a copy of the image to apply the mask
-    masked_image = np.copy(image)
+    masked_image = np.copy(image).astype(np.float32)
     
     try:
         try:
@@ -428,3 +429,158 @@ def cosine_similarity_3d(image: np.ndarray, reference: np.ndarray):
     cosine_2d = cosine.reshape((image.shape[1], image.shape[2]))
     
     return cosine_2d
+
+from scipy.ndimage import shift
+from skimage.registration import phase_cross_correlation
+
+def find_shift_2d(ref_img:np.ndarray,moving_img:np.ndarray):
+    """
+    Align two image arrays using the skimage phase_cross_correlation() function, and displays the 
+    difference between the images.
+
+    Args:
+        ref_img (np.ndarray): The reference image
+        moving_image(np.ndarray): The image to be aligned 
+
+    Returns: 
+        shifted (np.ndarray): The shifted array.  Edges are padded with zero.  
+    """
+
+    img_shift,err,phase = phase_cross_correlation(ref_img,moving_img)
+    shifted = shift(moving_img,img_shift)
+    print(img_shift)
+    plt.imshow(shifted-ref_img)
+    plt.show()
+    return shifted
+
+def read_image_from_textfile(filename: str, imsize=(512,512),datacolumn=2,nskip=8):
+    """
+    Read a grayscale image from the ascii text file provided by ION-TOF with default size of 512x512.
+
+    The function expects the file to contain x and y coordinates in the first two columns.
+    The third column should contain the pixel intensity values of the image, which are read, converted 
+    to floats, reshaped into a 512x512 array, and returned as a grayscale image.
+
+    Args:
+        filename (str): The path to the text file containing the image pixel data.
+        imsize (tuple): The size of the image in pixels. Default is (512, 512)
+
+    Returns:
+        image_array: A 2d numpy array containing the image.
+
+    Raises:
+        ValueError: If the third value is not the correct image length
+    
+    Example:
+        image = read_image_from_textfile('image_data.txt')
+        plt.imshow(image)
+    """
+    # Step 1: Read the 1D array from the text file using pandas read_csv
+    df = pd.read_csv(filename, header=None, delimiter=' ', dtype=float,skiprows=nskip)
+
+    # Step 2: Flatten the DataFrame to a 1D array
+    pixel_values = df.iloc[:, datacolumn].values
+    pixel_values = pixel_values.flatten()
+
+    # Step 3: Check if the number of pixels the same as the image size
+    if len(pixel_values)%(imsize[0] * imsize[1]) != 0:
+        raise ValueError("The pixel values do not match the expected image size")
+
+    # Step 4: Convert the 1D array to a 2D array
+    try:
+        return pixel_values.reshape((imsize[0], imsize[1]))
+    except:
+        return pixel_values
+
+def get_TOFSIMS_component(filename:str):
+    """
+    Reads and returns the second line of TOF-SIMS ascii format image file that contains the scan type from the specified file.
+
+    Args:
+        filename (str): The path to the text file.
+
+    Returns:
+        str: The second line of the text file.
+
+    """
+    with open(filename, 'r') as file:
+        # Read all lines and get the second line (index 1)
+        lines = file.readlines()
+        if len(lines) >= 2:
+            second_line = lines[1].strip()  # Return the second line and remove leading/trailing whitespaces
+            return second_line.split('Interval:')[1]
+        else:
+            raise ValueError("The file does not have a second line.")
+        
+def get_TOFSIMS_data(folder_path:str):
+    """
+    Extracts the image data from ascii formatted TOF-SIMS data in the specified folder
+    and stores the results in a Pandas DataFrame with custom column names.
+
+    The function scans all `.txt` files in the provided folder. For each file, it reads the data,
+    extracts the third column containing intensity data, flattens it into a 1D array, and associates
+    it with the scan type from get_TOFSIMS_component(). the data is stored as a column in the 
+    resulting DataFrame, with the keys serving as column labels.
+
+    Args:
+        folder_path (str): The path to the folder containing the text files to process.
+
+    Returns:
+        pd.DataFrame: A Pandas DataFrame with each column representing the data from 
+                      each TOF-SIMS text file, labeled with the correspondin scan type as the column name.
+
+    Notes:
+        - Assumes that each text file is in a format that can be read by `read_image_from_textfile`.
+        - Assumes that `get_TOFSIMS_component(file_path)` returns a valid column name for the DataFrame.
+        - Only non-empty third columns are added to the resulting DataFrame.
+        - The input text files should have at least three columns of data.
+
+    Example:
+        folder_path = '/path/to/your/folder'
+        df = get_TOFSIMS_data(folder_path)
+        print(df)
+    """
+    columns = {}
+    for filename in os.listdir(folder_path):
+        # Check if the file is a text file
+
+        if filename.endswith('.txt'):
+            file_path = os.path.join(folder_path, filename)
+            series = (read_image_from_textfile(file_path)).flatten()
+            
+            transition = get_TOFSIMS_component(os.path.join(folder_path,filename))
+
+            if series.size > 0:
+                columns[transition] = series
+    return pd.DataFrame(columns)
+
+
+from skimage import io
+def make_txt_label(lower, upper, img_name, z_dimension = 0):
+
+    """Makes a simple text file with each line representing the energy of the hyperspectral image slice
+    lower is the lower bound energy, upper is the upper bound energy
+    The function will make a step for every slice in the z dimension, which defaults to the 0th dimension"""
+
+    image = io.imread(str(img_name))
+    print("input size: ", image.shape)
+
+    #create an evenly spaced series with the same number of points as the 
+    values = np.linspace(lower, upper, image.shape[z_dimension])
+    print("output size: ", values.shape)
+    filename = img_name[0:-4]+".txt"
+    if ".txt" not in filename:
+        filename = filename+".txt"
+
+    f = open(filename,'w')
+    for value in values:
+        f.write(str(value)+'\n')
+    return
+
+def oxide_cs_to_percent(normed_oxide_cs):
+    """This converts the normalized oxide cosine simiarlity score to a percent using a fit of 
+    oxide fraction vs normalized cosine similarity derived from synthetic spectra.  This only works 
+    for the specific NiCr curves I used"""
+    params = [-30.69006309,  40.12087749, -11.80374623]
+    fit = np.poly1d(params)
+    return fit(normed_oxide_cs)*100
