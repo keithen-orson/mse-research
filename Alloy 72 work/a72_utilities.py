@@ -62,12 +62,12 @@ def load_phase_masks():
     """
     al_phase = imread("/Users/apple/Sync/Research/Alloy 72/Segmentation/Registered masks/Al enriched phase.tif")
     islands = imread("/Users/apple/Sync/Research/Alloy 72/Segmentation/Registered masks/islands only.tif")
-    ni_depleted = imread("/Users/apple/Sync/Research/Alloy 72/Segmentation/Registered masks/ni depleted phase.tif")
+    ti_rich = imread("/Users/apple/Sync/Research/Alloy 72/Segmentation/Registered masks/ni depleted phase.tif")
     l21 = imread("/Users/apple/Sync/Research/Alloy 72/Segmentation/Registered masks/registered l21 mask.tif")
-    inverse_fcc = al_phase+islands+ni_depleted+l21
+    inverse_fcc = al_phase+islands+ti_rich+l21
     fcc = np.where(inverse_fcc == 0, 1, 0)
 
-    phase_masks = {"Al phase": al_phase, "Islands": islands, "Ni depleted": ni_depleted, "L21": l21, "FCC": fcc}
+    phase_masks = {"Al phase": al_phase, "Islands": islands, "Ti-rich": ti_rich, "L21": l21, "FCC": fcc}
 
     return phase_masks
 
@@ -86,7 +86,10 @@ def subtract_background(image: ArrayLike, xas_energy: ArrayLike, bg_endpoints: t
     - br_subtracted: The background-subtracted image.
     - linear_br: The computed linear background.
     """
-    
+    one_D = False
+    if image.ndim == 1:
+        one_D = True
+        image= image.reshape(image.shape[0],1,1)
     # Get the number of energy levels (E) in the hyperspectral image
     len_element = image.shape[0]
     
@@ -119,8 +122,9 @@ def subtract_background(image: ArrayLike, xas_energy: ArrayLike, bg_endpoints: t
 
     # Subtract the linear background from the original image
     br_subtracted = image.copy() - linear_br
-
     # Return the background-subtracted image and the linear background
+    if one_D:
+        return br_subtracted.flatten(), linear_br.flatten()
     return br_subtracted, linear_br
 
 def load_reg_XAS_masks():
